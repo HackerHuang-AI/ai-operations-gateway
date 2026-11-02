@@ -1,0 +1,18 @@
+{
+  "default": {
+    "slidingWindowSize": 10,
+    "minimumNumberOfCalls": 10,
+    "failureRateThreshold": 50,
+    "waitDurationInOpenStateSeconds": 10,
+    "permittedNumberOfCallsInHalfOpenState": 3
+  },
+  "instances": {
+    "ai-operations": {
+      "slidingWindowSize": 20,
+      "minimumNumberOfCalls": 10,
+      "failureRateThreshold": 50,
+      "waitDurationInOpenStateSeconds": 15,
+      "permittedNumberOfCallsInHalfOpenState": 5
+    }
+  }
+}

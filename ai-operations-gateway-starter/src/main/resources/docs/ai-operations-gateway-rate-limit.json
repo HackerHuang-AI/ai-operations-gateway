@@ -1,0 +1,14 @@
+{
+  "default": {
+    "enabled": true,
+    "replenishRate": 100,
+    "burstCapacity": 200,
+    "requestedTokens": 1
+  },
+  "routes": {
+    "ai-operations": {
+      "replenishRate": 20,
+      "burstCapacity": 40
+    }
+  }
+}

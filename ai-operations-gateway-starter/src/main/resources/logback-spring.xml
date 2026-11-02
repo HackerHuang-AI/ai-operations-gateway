@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="true" scanPeriod="60 seconds">
+
+    <!-- ==================== 从 Spring 环境读取属性 ==================== -->
+    <springProperty name="APP_NAME"   source="spring.application.name" defaultValue="ai-operations-gateway"/>
+    <springProperty name="APP_ENV"    source="app.environment"         defaultValue="dev"/>
+    <springProperty name="LOG_PATH"   source="logging.file.path"       defaultValue="logs"/>
+    <springProperty name="LOG_LEVEL"  source="logging.level.root"      defaultValue="INFO"/>
+    <springProperty name="APP_LEVEL"  source="logging.level.com.ai.operations.gateway" defaultValue="DEBUG"/>
+
+    <!-- ==================== 日志格式 ==================== -->
+
+    <!--
+        控制台彩色格式（dev/stag 使用）：
+        时间 | 级别 | 线程 | 追踪ID | 来源AppKey | 日志器(精简) | 消息
+    -->
+    <property name="CONSOLE_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%thread] %cyan([%X{traceId:-}]) %yellow([callChain=%X{callChain:-}]) %boldMagenta(%-40.40logger{39}) - %msg%n%ex"/>
+
+    <!--
+        文件输出格式（不含 ANSI 颜色转义符）：
+    -->
+    <property name="FILE_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [%X{traceId:-}] [callChain=%X{callChain:-}] %-40.40logger{39} - %msg%n%ex"/>
+
+    <!-- ==================== Appender 定义 ==================== -->
+
+    <!-- 1. 控制台 Appender（仅 dev / stag 激活） -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- 2. 全量滚动文件 Appender（INFO 及以上，按天滚动，最多保留 30 天 / 2GB） -->
+    <appender name="FILE_ALL" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 按天滚动，同一天内按 100MB 拆分 -->
+            <fileNamePattern>${LOG_PATH}/${APP_NAME}.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <!-- 只写 INFO 及以上，DEBUG 不进文件（线上减少 IO） -->
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+    </appender>
+
+    <!-- 3. ERROR 单独文件（方便快速定位异常，按天滚动，保留 60 天） -->
+    <appender name="FILE_ERROR" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}-error.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/${APP_NAME}-error.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>60</maxHistory>
+            <totalSizeCap>500MB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <!-- 只写 ERROR -->
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+    </appender>
+
+    <!-- ==================== 异步包装（提升 IO 吞吐） ==================== -->
+
+    <appender name="ASYNC_FILE_ALL" class="ch.qos.logback.classic.AsyncAppender">
+        <discardingThreshold>0</discardingThreshold>   <!-- 队列满时不丢弃 WARN/ERROR 以外的日志 -->
+        <queueSize>1024</queueSize>
+        <includeCallerData>false</includeCallerData>
+        <appender-ref ref="FILE_ALL"/>
+    </appender>
+
+    <appender name="ASYNC_FILE_ERROR" class="ch.qos.logback.classic.AsyncAppender">
+        <discardingThreshold>0</discardingThreshold>
+        <queueSize>256</queueSize>
+        <includeCallerData>true</includeCallerData>    <!-- ERROR 日志保留调用栈位置信息 -->
+        <appender-ref ref="FILE_ERROR"/>
+    </appender>
+
+    <!-- ==================== Logger 级别配置 ==================== -->
+
+    <!-- 网关业务代码 -->
+    <logger name="com.ai.operations.gateway" level="${APP_LEVEL}" additivity="false">
+        <springProfile name="dev,stag">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ASYNC_FILE_ALL"/>
+        <appender-ref ref="ASYNC_FILE_ERROR"/>
+    </logger>
+
+    <!-- SCG 框架日志（dev 开 DEBUG 看路由匹配细节，prod 用 WARN 降噪） -->
+    <logger name="org.springframework.cloud.gateway" level="INFO">
+        <springProfile name="dev">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+    </logger>
+
+    <!-- Reactor Netty 网络层（默认 WARN，排查连接问题时可临时改 DEBUG） -->
+    <logger name="reactor.netty"             level="WARN"/>
+    <logger name="io.netty"                  level="WARN"/>
+
+    <!-- Resilience4j 熔断日志 -->
+    <logger name="io.github.resilience4j"    level="INFO"/>
+
+    <!-- Spring Framework 框架日志 -->
+    <logger name="org.springframework"       level="INFO"/>
+    <logger name="org.springframework.web"   level="WARN"/>
+
+    <!-- ==================== Root Logger（兜底） ==================== -->
+
+    <root level="${LOG_LEVEL}">
+        <springProfile name="dev,stag">
+            <appender-ref ref="CONSOLE"/>
+        </springProfile>
+        <appender-ref ref="ASYNC_FILE_ALL"/>
+        <appender-ref ref="ASYNC_FILE_ERROR"/>
+    </root>
+
+</configuration>
+

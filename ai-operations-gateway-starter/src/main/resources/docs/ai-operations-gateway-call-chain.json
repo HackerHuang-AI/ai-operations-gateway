@@ -1,0 +1,5 @@
+{
+  "maxCallChainHops": 64,
+  "maxCallChainLength": 2048
+}
+

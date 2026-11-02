@@ -1,0 +1,6 @@
+{
+  "ai-operations": [
+    "X-Internal-Session-Id",
+    "X-Forwarded-For"
+  ]
+}

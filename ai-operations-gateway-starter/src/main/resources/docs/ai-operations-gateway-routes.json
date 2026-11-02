@@ -1,0 +1,20 @@
+{
+  "authWhitelist": [
+    "/ai-operations/api/access/login",
+    "/ai-operations/api/access/sms-code/send"
+  ],
+  "routes": [
+    {
+      "id": "ai-operations",
+      "uri": "lb://ai-operations",
+      "predicates": [
+        {
+          "name": "Path",
+          "args": {
+            "_genkey_0": "/ai-operations/**"
+          }
+        }
+      ]
+    }
+  ]
+}

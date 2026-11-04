@@ -40,9 +40,9 @@ public class SessionAuthFilter implements GlobalFilter {
 
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
-    private static final String SESSION_KEY_PREFIX = "ai-admin:ai-operations:auth:session:{";
-    private static final String SESSION_ID_KEY_PREFIX = "ai-admin:ai-operations:auth:session-id:{";
-    private static final String USER_SESSIONS_KEY_PREFIX = "ai-admin:ai-operations:auth:user-sessions:{";
+    private static final String SESSION_KEY_PREFIX = "ai-operations:auth:session:{";
+    private static final String SESSION_ID_KEY_PREFIX = "ai-operations:auth:session-id:{";
+    private static final String USER_SESSIONS_KEY_PREFIX = "ai-operations:auth:user-sessions:{";
     private static final Duration DEFAULT_SESSION_TTL = Duration.ofHours(4);
     private static final Duration DEFAULT_SESSION_RENEW_WINDOW = Duration.ofMinutes(10);
     private static final RedisScript<String> GET_SESSION_SCRIPT = new DefaultRedisScript<>("""
@@ -194,8 +194,7 @@ public class SessionAuthFilter implements GlobalFilter {
             }
             String sessionId = textualValue(session, "sessionId");
             String userId = textualValue(session, "userId");
-            if (sessionId == null || userId == null
-                    || !"ops".equals(textualValue(session, "clientType"))) {
+            if (sessionId == null || userId == null) {
                 return SessionLookup.rejected("invalid_session");
             }
             return SessionLookup.authenticated(new SessionIdentity(sessionId, userId,

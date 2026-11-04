@@ -15,13 +15,13 @@
         时间 | 级别 | 线程 | 追踪ID | 来源AppKey | 日志器(精简) | 消息
     -->
     <property name="CONSOLE_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%thread] %cyan([%X{traceId:-}]) %yellow([callChain=%X{callChain:-}]) %boldMagenta(%-40.40logger{39}) - %msg%n%ex"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%thread] %cyan([%X{traceId:-}]) %yellow([%replace(%X{callChain:-}){'^(.+)$','callChain=$1'}]) %boldMagenta(%-40.40logger{39}) - %msg%n%ex"/>
 
     <!--
         文件输出格式（不含 ANSI 颜色转义符）：
     -->
     <property name="FILE_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [%X{traceId:-}] [callChain=%X{callChain:-}] %-40.40logger{39} - %msg%n%ex"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [%X{traceId:-}] [%replace(%X{callChain:-}){'^(.+)$','callChain=$1'}] %-40.40logger{39} - %msg%n%ex"/>
 
     <!-- ==================== Appender 定义 ==================== -->
 

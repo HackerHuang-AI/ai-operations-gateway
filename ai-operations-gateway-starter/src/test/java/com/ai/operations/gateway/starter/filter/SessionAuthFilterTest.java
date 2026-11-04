@@ -9,8 +9,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.support.ResourceBundleMessageSource;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
@@ -31,17 +31,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class SessionAuthFilterTest {
     private static final String PATH = "/ai-operations/api/test";
-    private static final String SESSION = "{\"sessionId\":\"session-1\",\"userId\":\"user-1\",\"clientType\":\"ops\",\"ttlMillis\":3600000,\"renewWindowMillis\":600000}";
+    private static final String SESSION = "{\"sessionId\":\"session-1\",\"userId\":\"user-1\",\"ttlMillis\":3600000,\"renewWindowMillis\":600000}";
     private static final List<String> CLIENT_HEADERS = List.of("Authorization", "X-Internal-User-Id",
             "X-Internal-Tenant-Id", "X-Internal-Session-Id", "X-Call-Chain", "X-Source-AppKey",
             "X-User-Id", "X-Tenant-Id", "X-Session-Id", "X-Client-Type", "X-Internal-Client-Type");
@@ -68,7 +62,7 @@ class SessionAuthFilterTest {
                 .digest("token".getBytes(StandardCharsets.UTF_8)));
         verify(redisTemplate).execute(org.mockito.ArgumentMatchers.<RedisScript<String>>argThat(
                         script -> script != null && script.getResultType() == String.class),
-                eq(List.of("ai-admin:ai-operations:auth:session:{" + tokenHash + "}")),
+                eq(List.of("ai-operations:auth:session:{" + tokenHash + "}")),
                 eq(List.of("600000", "14400000")));
         verifyNoMoreInteractions(redisTemplate);
     }
@@ -84,12 +78,38 @@ class SessionAuthFilterTest {
         assertThat(headers.keySet()).containsOnly("X-Internal-User-Id", "X-Internal-Session-Id");
     }
 
+    @Test
+    void acceptsLegacySessionWithClientType() {
+        mockSession(Flux.just("0" + SESSION.replace("{", "{\"clientType\":\"ops\",")));
+
+        HttpHeaders headers = forward(exchange(PATH, false));
+
+        assertThat(headers.get("X-Internal-User-Id")).containsExactly("user-1");
+        assertThat(headers.get("X-Internal-Session-Id")).containsExactly("session-1");
+        assertThat(headers.getFirst("X-Internal-Tenant-Id")).isNull();
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = {"usr", "missing", "invalid-json", "invalid-user"})
+    @ValueSource(strings = {"ai-base:", "ai-admin:ai-operations:"})
+    void rejectsTokenStoredOutsideOperationsKeySpace(String prefix) throws Exception {
+        String userKey = sessionKey().replace("ai-operations:", prefix);
+        when(redisTemplate.execute(org.mockito.ArgumentMatchers.<RedisScript<String>>argThat(
+                        script -> script != null && script.getResultType() == String.class),
+                eq(List.of(sessionKey())), anyList())).thenReturn(Flux.empty());
+        when(redisTemplate.execute(org.mockito.ArgumentMatchers.<RedisScript<String>>argThat(
+                        script -> script != null && script.getResultType() == String.class),
+                eq(List.of(userKey)), anyList())).thenReturn(Flux.just("0" + SESSION));
+
+        assertUnauthorized(exchange(PATH, false));
+        verify(redisTemplate, never()).execute(org.mockito.ArgumentMatchers.<RedisScript<String>>argThat(
+                        script -> script != null && script.getResultType() == String.class),
+                eq(List.of(userKey)), anyList());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"invalid-json", "invalid-user"})
     void rejectsInvalidSession(String scenario) throws Exception {
         String session = switch (scenario) {
-            case "usr" -> SESSION.replace("\"clientType\":\"ops\"", "\"clientType\":\"usr\"");
-            case "missing" -> SESSION.replace("\"clientType\":\"ops\",", "");
             case "invalid-user" -> SESSION.replace("\"userId\":\"user-1\"", "\"userId\":123");
             default -> "{invalid-json";
         };
@@ -139,10 +159,10 @@ class SessionAuthFilterTest {
                 eq(List.of(sessionKey())), eq(List.of("600000", "14400000")));
         order.verify(redisTemplate).execute(org.mockito.ArgumentMatchers.<RedisScript<Long>>argThat(
                         script -> script != null && script.getResultType() == Long.class),
-                eq(List.of("ai-admin:ai-operations:auth:session-id:{session-1}")), eq(List.of("3600000")));
+                eq(List.of("ai-operations:auth:session-id:{session-1}")), eq(List.of("3600000")));
         order.verify(redisTemplate).execute(org.mockito.ArgumentMatchers.<RedisScript<Long>>argThat(
                         script -> script != null && script.getResultType() == Long.class),
-                eq(List.of("ai-admin:ai-operations:auth:user-sessions:{user-1}")), eq(List.of("3600000")));
+                eq(List.of("ai-operations:auth:user-sessions:{user-1}")), eq(List.of("3600000")));
         order.verify(redisTemplate).execute(org.mockito.ArgumentMatchers.<RedisScript<Long>>argThat(
                         script -> script != null && script.getResultType() == Long.class),
                 eq(List.of(sessionKey())), eq(List.of(SESSION, "3600000")));
@@ -155,7 +175,7 @@ class SessionAuthFilterTest {
     void rejectsFailedIndexRenewalWithoutRenewingMainSession(String index, String scenario) throws Exception {
         mockSession(Flux.just("1" + SESSION));
         mockRenewal(Flux.just(1L));
-        String key = "ai-admin:ai-operations:auth:" + index + ":{"
+        String key = "ai-operations:auth:" + index + ":{"
                 + (index.equals("session-id") ? "session-1" : "user-1") + "}";
         when(redisTemplate.execute(org.mockito.ArgumentMatchers.<RedisScript<Long>>argThat(
                         script -> script != null && script.getResultType() == Long.class),
@@ -198,7 +218,7 @@ class SessionAuthFilterTest {
     private String sessionKey() throws Exception {
         String tokenHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest("token".getBytes(StandardCharsets.UTF_8)));
-        return "ai-admin:ai-operations:auth:session:{" + tokenHash + "}";
+        return "ai-operations:auth:session:{" + tokenHash + "}";
     }
 
     private void mockSession(Flux<String> result) {

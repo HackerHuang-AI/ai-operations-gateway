@@ -1,6 +1,6 @@
 package com.ai.operations.gateway.starter.filter;
 
-import com.ai.operations.gateway.application.provider.GatewayCallChainConfigProvider;
+import com.ai.operations.gateway.application.governance.CallChainPolicy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -23,12 +23,12 @@ public class CallChainGlobalFilter implements GlobalFilter {
     private static final String LIMIT_PREFIX = "limit=";
     private static final String LENGTH_PREFIX = ",length=";
 
-    private final GatewayCallChainConfigProvider configProvider;
+    private final CallChainPolicy callChainPolicy;
     private final String applicationName;
 
-    public CallChainGlobalFilter(GatewayCallChainConfigProvider configProvider,
+    public CallChainGlobalFilter(CallChainPolicy callChainPolicy,
                                  @Value("${spring.application.name:ai-operations-gateway}") String applicationName) {
-        this.configProvider = configProvider;
+        this.callChainPolicy = callChainPolicy;
         this.applicationName = applicationName;
     }
 
@@ -36,8 +36,8 @@ public class CallChainGlobalFilter implements GlobalFilter {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest().mutate()
                 .headers(headers -> headers.set(CALL_CHAIN_HEADER,
-                        LIMIT_PREFIX + configProvider.maxCallChainHops()
-                                + LENGTH_PREFIX + configProvider.maxCallChainLength() + ";" + applicationName))
+                        LIMIT_PREFIX + callChainPolicy.maxCallChainHops()
+                                + LENGTH_PREFIX + callChainPolicy.maxCallChainLength() + ";" + applicationName))
                 .build();
         return chain.filter(exchange.mutate().request(request).build());
     }

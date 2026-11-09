@@ -1,4 +1,4 @@
-package com.ai.operations.gateway.application.locator;
+package com.ai.operations.gateway.infrastructure.locator;
 
 import org.springframework.cloud.gateway.route.RouteDefinition;
 import org.springframework.cloud.gateway.route.RouteDefinitionLocator;
@@ -34,4 +34,3 @@ public class NacosRouteDefinitionLocator implements RouteDefinitionLocator {
         return Flux.fromIterable(definitions.get().values());
     }
 }
-

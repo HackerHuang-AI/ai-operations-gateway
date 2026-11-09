@@ -1,19 +1,17 @@
 package com.ai.operations.gateway.starter.filter;
 
+import com.ai.operations.gateway.application.governance.GatewayRateLimitPolicy;
 import com.ai.operations.gateway.application.model.GatewayGovernanceConfig.RateLimitRule;
-import com.ai.operations.gateway.application.provider.GatewayRateLimitConfigProvider;
+import com.ai.operations.gateway.application.port.RateLimitStore;
 import com.ai.operations.gateway.starter.common.GatewayErrorResponseWriter;
 import com.ai.operations.gateway.starter.enums.ErrorCodeEnum;
 import org.junit.jupiter.api.Test;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.route.Route;
 import org.springframework.cloud.gateway.support.ServerWebExchangeUtils;
-import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
-import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.net.InetSocketAddress;
@@ -22,7 +20,6 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -30,21 +27,22 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class NacosRateLimitGlobalFilterTest {
-    private final GatewayRateLimitConfigProvider provider = mock(GatewayRateLimitConfigProvider.class);
-    private final ReactiveStringRedisTemplate redis = mock(ReactiveStringRedisTemplate.class);
-    private final RedisScript<List<Long>> script = RedisScript.of("return {1, 10}");
+    private final GatewayRateLimitPolicy rateLimitPolicy = mock(GatewayRateLimitPolicy.class);
+    private final RateLimitStore rateLimitStore = mock(RateLimitStore.class);
     private final GatewayErrorResponseWriter writer = mock(GatewayErrorResponseWriter.class);
     private final GatewayFilterChain chain = mock(GatewayFilterChain.class);
-    private final NacosRateLimitGlobalFilter filter = new NacosRateLimitGlobalFilter(provider, redis, script, writer);
+    private final NacosRateLimitGlobalFilter filter =
+            new NacosRateLimitGlobalFilter(rateLimitPolicy, rateLimitStore, writer);
 
     @Test
     void usesSameRemoteIpBucketDespiteDifferentForgedForwardingHeaders() {
-        when(provider.ruleFor("test-route")).thenReturn(new RateLimitRule(true, 10, 20, 1));
+        RateLimitRule rule = new RateLimitRule(true, 10, 20, 1);
+        when(rateLimitPolicy.ruleFor("test-route")).thenReturn(rule);
         when(chain.filter(any())).thenReturn(Mono.empty());
-        List<List<String>> capturedKeys = new ArrayList<>();
-        when(redis.execute(eq(script), anyList(), anyList())).thenAnswer(invocation -> {
-            capturedKeys.add(invocation.getArgument(1));
-            return Flux.just(List.of(1L, 10L));
+        List<String> capturedIps = new ArrayList<>();
+        when(rateLimitStore.tryAcquire(eq("test-route"), any(), eq(rule))).thenAnswer(invocation -> {
+            capturedIps.add(invocation.getArgument(1));
+            return Mono.just(true);
         });
         MockServerWebExchange first = exchange("198.51.100.1");
         MockServerWebExchange second = exchange("198.51.100.2");
@@ -52,20 +50,18 @@ class NacosRateLimitGlobalFilterTest {
         filter.filter(first, chain).block();
         filter.filter(second, chain).block();
 
-        assertThat(capturedKeys).hasSize(2);
-        assertThat(capturedKeys.get(0)).containsExactly(
-                "ai-admin:ai-operations-gateway:rate-limit:{test-route:192.0.2.10}:tokens",
-                "ai-admin:ai-operations-gateway:rate-limit:{test-route:192.0.2.10}:timestamp");
-        assertThat(capturedKeys.get(1)).isEqualTo(capturedKeys.get(0));
+        assertThat(capturedIps).containsExactly("192.0.2.10", "192.0.2.10");
         verify(chain).filter(first);
         verify(chain).filter(second);
         verifyNoInteractions(writer);
     }
 
     @Test
-    void keepsFailOpenWhenRedisFails() {
-        when(provider.ruleFor("test-route")).thenReturn(new RateLimitRule(true, 10, 20, 1));
-        when(redis.execute(eq(script), anyList(), anyList())).thenReturn(Flux.error(new IllegalStateException("Redis unavailable")));
+    void keepsFailOpenWhenRateLimitStoreFails() {
+        RateLimitRule rule = new RateLimitRule(true, 10, 20, 1);
+        when(rateLimitPolicy.ruleFor("test-route")).thenReturn(rule);
+        when(rateLimitStore.tryAcquire(eq("test-route"), any(), eq(rule)))
+                .thenReturn(Mono.error(new IllegalStateException("Redis unavailable")));
         MockServerWebExchange exchange = exchange("198.51.100.1");
         when(chain.filter(exchange)).thenReturn(Mono.empty());
 
@@ -77,9 +73,10 @@ class NacosRateLimitGlobalFilterTest {
     }
 
     @Test
-    void stillRejectsWhenRedisBucketDeniesRequest() {
-        when(provider.ruleFor("test-route")).thenReturn(new RateLimitRule(true, 10, 20, 1));
-        when(redis.execute(eq(script), anyList(), anyList())).thenReturn(Flux.just(List.of(0L, 0L)));
+    void stillRejectsWhenRateLimitStoreDeniesRequest() {
+        RateLimitRule rule = new RateLimitRule(true, 10, 20, 1);
+        when(rateLimitPolicy.ruleFor("test-route")).thenReturn(rule);
+        when(rateLimitStore.tryAcquire(eq("test-route"), any(), eq(rule))).thenReturn(Mono.just(false));
         MockServerWebExchange exchange = exchange("198.51.100.1");
         when(writer.write(exchange, HttpStatus.TOO_MANY_REQUESTS, ErrorCodeEnum.GATEWAY_RATE_LIMITED)).thenReturn(Mono.empty());
 
@@ -99,4 +96,3 @@ class NacosRateLimitGlobalFilterTest {
         return exchange;
     }
 }
-

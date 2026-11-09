@@ -1,9 +1,10 @@
-package com.ai.operations.gateway.application.provider;
+package com.ai.operations.gateway.infrastructure.provider;
 
-import com.ai.operations.gateway.application.locator.NacosRouteDefinitionLocator;
+import com.ai.operations.gateway.application.governance.AuthWhitelistService;
 import com.ai.operations.gateway.application.model.GatewayGovernanceConfig.*;
 import com.ai.operations.gateway.infrastructure.config.NacosConfig;
 import com.ai.operations.gateway.infrastructure.enums.NacosDataIdEnum;
+import com.ai.operations.gateway.infrastructure.locator.NacosRouteDefinitionLocator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
@@ -30,7 +31,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 加载并应用网关路由和熔断治理配置。
+ * 订阅 Nacos 路由与熔断配置，校验后应用到网关路由表、白名单快照与熔断注册表。
  *
  * @author HUANGcong
  * @since 2026-09-24
@@ -39,21 +40,18 @@ import java.util.concurrent.atomic.AtomicReference;
 @Component
 public class GatewayRoutesConfigProvider {
 
-    private static final List<String> DEFAULT_AUTH_WHITELIST = List.of(
-            "/ai-operations/api/access/login", "/ai-operations/api/access/sms-code/send");
     private static final CircuitBreakerRule DEFAULT_CIRCUIT_BREAKER = new CircuitBreakerRule(10, 10, 50F, 10, 3);
 
     private final NacosConfig nacosConfig;
     private final ObjectMapper objectMapper;
     private final NacosRouteDefinitionLocator routeDefinitionLocator;
+    private final AuthWhitelistService authWhitelistService;
     private final ApplicationEventPublisher eventPublisher;
     private final CircuitBreakerRegistry circuitBreakerRegistry;
     private final Map<String, RoutePredicateFactory<?>> predicateFactories;
     private final Map<String, GatewayFilterFactory<?>> filterFactories;
     @Autowired
     private ConfigurationService configurationService;
-    private final AtomicReference<RouteSnapshot> routeSnapshot =
-            new AtomicReference<>(new RouteSnapshot(DEFAULT_AUTH_WHITELIST));
     private final AtomicReference<CircuitSnapshot> circuitSnapshot =
             new AtomicReference<>(new CircuitSnapshot(DEFAULT_CIRCUIT_BREAKER, Map.of()));
     private final AtomicReference<Routes> validRoutesConfig = new AtomicReference<>();
@@ -61,6 +59,7 @@ public class GatewayRoutesConfigProvider {
 
     public GatewayRoutesConfigProvider(NacosConfig nacosConfig, ObjectMapper objectMapper,
                                        NacosRouteDefinitionLocator routeDefinitionLocator,
+                                       AuthWhitelistService authWhitelistService,
                                        ApplicationEventPublisher eventPublisher,
                                        CircuitBreakerRegistry circuitBreakerRegistry,
                                        List<RoutePredicateFactory<?>> predicateFactories,
@@ -68,6 +67,7 @@ public class GatewayRoutesConfigProvider {
         this.nacosConfig = nacosConfig;
         this.objectMapper = objectMapper;
         this.routeDefinitionLocator = routeDefinitionLocator;
+        this.authWhitelistService = authWhitelistService;
         this.eventPublisher = eventPublisher;
         this.circuitBreakerRegistry = circuitBreakerRegistry;
         this.predicateFactories = predicateFactories.stream()
@@ -80,10 +80,6 @@ public class GatewayRoutesConfigProvider {
     void registerConfigHandlers() {
         nacosConfig.registerConfigHandler(NacosDataIdEnum.AI_GATEWAY_CIRCUIT_BREAKER, this::applyCircuitBreakerConfig);
         nacosConfig.registerConfigHandler(NacosDataIdEnum.AI_GATEWAY_ROUTES, this::applyRoutesConfig);
-    }
-
-    public boolean isAuthWhiteListed(String path) {
-        return routeSnapshot.get().authWhitelist().stream().anyMatch(pattern -> matches(path, pattern));
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -125,22 +121,6 @@ public class GatewayRoutesConfigProvider {
         } catch (Exception exception) {
             log.error("[GatewayCircuitBreaker] Ignoring invalid circuit breaker config and retaining the last valid snapshot", exception);
         }
-    }
-
-    private List<String> validateWhitelist(List<String> whitelist) {
-        if (whitelist == null) {
-            throw new IllegalArgumentException("authWhitelist must not be null");
-        }
-        List<String> result = new ArrayList<>();
-        for (String pattern : whitelist) {
-            if (!StringUtils.hasText(pattern) || !pattern.startsWith("/")
-                    || (pattern.contains("*") && !pattern.endsWith("/**"))
-                    || pattern.substring(0, Math.max(0, pattern.length() - 3)).contains("*")) {
-                throw new IllegalArgumentException("unsupported auth whitelist pattern: " + pattern);
-            }
-            result.add(pattern);
-        }
-        return List.copyOf(result);
     }
 
     private List<RouteDefinition> toRouteDefinitions(List<Route> routes) {
@@ -234,7 +214,10 @@ public class GatewayRoutesConfigProvider {
     }
 
     private synchronized void replaceManagedRoutes(Routes config) {
-        List<String> whitelist = validateWhitelist(config.authWhitelist());
+        List<String> whitelist = config.authWhitelist();
+        if (whitelist == null) {
+            throw new IllegalArgumentException("authWhitelist must not be null");
+        }
         List<RouteDefinition> definitions = toRouteDefinitions(config.routes());
         for (RouteDefinition definition : definitions) {
             for (PredicateDefinition predicate : definition.getPredicates()) {
@@ -246,7 +229,7 @@ public class GatewayRoutesConfigProvider {
         }
         routeDefinitionLocator.replace(definitions);
         validRoutesConfig.set(config);
-        routeSnapshot.set(new RouteSnapshot(whitelist));
+        authWhitelistService.replace(whitelist);
         if (applicationReady) {
             eventPublisher.publishEvent(new RefreshRoutesEvent(this));
         }
@@ -299,17 +282,6 @@ public class GatewayRoutesConfigProvider {
         if (!StringUtils.hasText(routeId) || !routeId.matches("[A-Za-z0-9._-]+")) {
             throw new IllegalArgumentException("invalid route id: " + routeId);
         }
-    }
-
-    private boolean matches(String path, String pattern) {
-        if (pattern.endsWith("/**")) {
-            String prefix = pattern.substring(0, pattern.length() - 3);
-            return path.equals(prefix) || path.startsWith(prefix + "/");
-        }
-        return path.equals(pattern);
-    }
-
-    private record RouteSnapshot(List<String> authWhitelist) {
     }
 
     private record CircuitSnapshot(CircuitBreakerRule defaultRule, Map<String, CircuitBreakerRule> instances) {

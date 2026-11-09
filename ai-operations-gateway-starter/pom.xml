@@ -25,6 +25,12 @@
             <artifactId>ai-operations-gateway-client</artifactId>
         </dependency>
 
+        <!-- infrastructure：仅用于运行时装配（扫描 SessionStore/Provider 实现 Bean），业务代码不直接引用 -->
+        <dependency>
+            <groupId>com.ai.operations.gateway</groupId>
+            <artifactId>ai-operations-gateway-infrastructure</artifactId>
+        </dependency>
+
         <!-- Nacos 配置中心与服务发现 -->
         <dependency>
             <groupId>com.alibaba.cloud</groupId>

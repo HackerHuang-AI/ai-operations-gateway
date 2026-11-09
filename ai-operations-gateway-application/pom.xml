@@ -11,7 +11,7 @@
 
     <artifactId>ai-operations-gateway-application</artifactId>
     <name>ai-operations-gateway-application</name>
-    <description>业务编排层：路由规则加载、动态路由 Service、限流策略 Service</description>
+    <description>业务编排层：会话端口、治理策略与快照服务</description>
 
     <dependencies>
         <dependency>
@@ -19,31 +19,16 @@
             <artifactId>spring-boot-starter</artifactId>
         </dependency>
 
-        <!-- Gateway（Reactive）-->
+        <!-- 会话端口返回类型使用 Reactor Mono -->
         <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-gateway</artifactId>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-core</artifactId>
         </dependency>
 
-        <!-- Nacos 服务发现（从注册中心拉取下游服务地址）-->
+        <!-- 治理配置模型使用 Jackson 注解 -->
         <dependency>
-            <groupId>com.alibaba.cloud</groupId>
-            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
-        </dependency>
-
-        <!-- Circuit Breaker（熔断，基于 Resilience4j）-->
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-circuitbreaker-reactor-resilience4j</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>com.ai.operations.gateway</groupId>
-            <artifactId>ai-operations-gateway-infrastructure</artifactId>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
         </dependency>
 
         <dependency>

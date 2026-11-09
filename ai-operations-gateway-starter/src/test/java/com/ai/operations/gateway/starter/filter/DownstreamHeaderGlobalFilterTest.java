@@ -1,6 +1,6 @@
 package com.ai.operations.gateway.starter.filter;
 
-import com.ai.operations.gateway.application.provider.GatewayDownstreamHeadersConfigProvider;
+import com.ai.operations.gateway.application.governance.DownstreamHeadersPolicy;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -20,8 +20,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class DownstreamHeaderGlobalFilterTest {
-    private final GatewayDownstreamHeadersConfigProvider provider = mock(GatewayDownstreamHeadersConfigProvider.class);
-    private final DownstreamHeaderGlobalFilter filter = new DownstreamHeaderGlobalFilter(provider);
+    private final DownstreamHeadersPolicy headersPolicy = mock(DownstreamHeadersPolicy.class);
+    private final DownstreamHeaderGlobalFilter filter = new DownstreamHeaderGlobalFilter(headersPolicy);
     private final XForwardedHeadersFilter frameworkFilter = new XForwardedHeadersFilter();
 
     @ParameterizedTest
@@ -42,14 +42,14 @@ class DownstreamHeaderGlobalFilterTest {
         assertThat(result.getFirst("X-Request-Id")).isEqualTo("request-1");
         assertThat(generated.getFirst("X-Forwarded-For")).contains("198.51.100.1");
         assertThat(generated.getFirst("X-Real-IP")).isEqualTo("198.51.100.2");
-        verify(provider).shouldRemove(application, "X-Internal-Session-Id");
-        verify(provider).shouldRemove(application, "X-Forwarded-For");
+        verify(headersPolicy).shouldRemove(application, "X-Internal-Session-Id");
+        verify(headersPolicy).shouldRemove(application, "X-Forwarded-For");
     }
 
     @Test
     void removesSessionAndFrameworkGeneratedForwardedForForDisallowedApplication() {
-        when(provider.shouldRemove("ai-agent", "X-Internal-Session-Id")).thenReturn(true);
-        when(provider.shouldRemove("ai-agent", "X-Forwarded-For")).thenReturn(true);
+        when(headersPolicy.shouldRemove("ai-agent", "X-Internal-Session-Id")).thenReturn(true);
+        when(headersPolicy.shouldRemove("ai-agent", "X-Forwarded-For")).thenReturn(true);
         MockServerWebExchange exchange = exchange("ai-agent", new InetSocketAddress("192.0.2.10", 12345));
         HttpHeaders generated = frameworkFilter.filter(exchange.getRequest().getHeaders(), exchange);
         assertThat(generated.getFirst("X-Forwarded-For")).contains("192.0.2.10");

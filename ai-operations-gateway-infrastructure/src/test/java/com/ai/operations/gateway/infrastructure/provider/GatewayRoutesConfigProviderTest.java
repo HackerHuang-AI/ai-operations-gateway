@@ -1,8 +1,9 @@
-package com.ai.operations.gateway.application.provider;
+package com.ai.operations.gateway.infrastructure.provider;
 
-import com.ai.operations.gateway.application.locator.NacosRouteDefinitionLocator;
+import com.ai.operations.gateway.application.governance.AuthWhitelistService;
 import com.ai.operations.gateway.application.model.GatewayGovernanceConfig.*;
 import com.ai.operations.gateway.infrastructure.config.NacosConfig;
+import com.ai.operations.gateway.infrastructure.locator.NacosRouteDefinitionLocator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -40,6 +41,7 @@ class GatewayRoutesConfigProviderTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final NacosRouteDefinitionLocator locator = new NacosRouteDefinitionLocator();
+    private final AuthWhitelistService authWhitelistService = new AuthWhitelistService();
     private final CircuitBreakerRegistry registry = CircuitBreakerRegistry.ofDefaults();
     private final ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
     private final LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
@@ -55,8 +57,8 @@ class GatewayRoutesConfigProviderTest {
                 () -> ApplicationConversionService.getSharedInstance(), () -> validator);
         circuitFactory = new SpringCloudCircuitBreakerResilience4JFilterFactory(
                 mock(ReactiveCircuitBreakerFactory.class), beanFactory.getBeanProvider(DispatcherHandler.class));
-        provider = new GatewayRoutesConfigProvider(mock(NacosConfig.class), objectMapper, locator, publisher,
-                registry, List.of(new PathRoutePredicateFactory()),
+        provider = new GatewayRoutesConfigProvider(mock(NacosConfig.class), objectMapper, locator,
+                authWhitelistService, publisher, registry, List.of(new PathRoutePredicateFactory()),
                 List.of(new StripPrefixGatewayFilterFactory(), new RewritePathGatewayFilterFactory(), circuitFactory));
         ReflectionTestUtils.setField(provider, "configurationService", configurationService);
         provider.markApplicationReady();
@@ -92,8 +94,8 @@ class GatewayRoutesConfigProviderTest {
         applyRoutes(new Routes(List.of("/new"), List.of(route("valid", "/valid/**", List.of()), invalidRoute)));
 
         assertThat(definitions()).containsExactlyElementsOf(previous);
-        assertThat(provider.isAuthWhiteListed("/old")).isTrue();
-        assertThat(provider.isAuthWhiteListed("/new")).isFalse();
+        assertThat(authWhitelistService.isAuthWhiteListed("/old")).isTrue();
+        assertThat(authWhitelistService.isAuthWhiteListed("/new")).isFalse();
         verify(publisher, never()).publishEvent(any(RefreshRoutesEvent.class));
     }
 
@@ -107,8 +109,8 @@ class GatewayRoutesConfigProviderTest {
 
         assertThat(definitions()).extracting(RouteDefinition::getId).containsExactly("new");
         assertThat(definitions().get(0).getFilters().get(0).getArgs()).containsEntry("parts", "1");
-        assertThat(provider.isAuthWhiteListed("/old")).isFalse();
-        assertThat(provider.isAuthWhiteListed("/new/child")).isTrue();
+        assertThat(authWhitelistService.isAuthWhiteListed("/old")).isFalse();
+        assertThat(authWhitelistService.isAuthWhiteListed("/new/child")).isTrue();
         verify(publisher).publishEvent(any(RefreshRoutesEvent.class));
     }
 
@@ -122,8 +124,8 @@ class GatewayRoutesConfigProviderTest {
         ReflectionTestUtils.invokeMethod(provider, "applyRoutesConfig", (Object) content);
 
         assertThat(definitions()).isEmpty();
-        assertThat(provider.isAuthWhiteListed("/old")).isFalse();
-        assertThat(provider.isAuthWhiteListed("/ai-operations/api/access/login")).isFalse();
+        assertThat(authWhitelistService.isAuthWhiteListed("/old")).isFalse();
+        assertThat(authWhitelistService.isAuthWhiteListed("/ai-base/api/access/login")).isFalse();
         verify(publisher).publishEvent(any(RefreshRoutesEvent.class));
     }
 
@@ -138,7 +140,7 @@ class GatewayRoutesConfigProviderTest {
         ReflectionTestUtils.invokeMethod(provider, "applyRoutesConfig", "{invalid");
 
         assertThat(definitions()).containsExactlyElementsOf(previous);
-        assertThat(provider.isAuthWhiteListed("/old")).isTrue();
+        assertThat(authWhitelistService.isAuthWhiteListed("/old")).isTrue();
         verify(publisher, never()).publishEvent(any(RefreshRoutesEvent.class));
     }
 
@@ -190,7 +192,7 @@ class GatewayRoutesConfigProviderTest {
 
         assertThat(registry.find("old")).isEmpty();
         assertThat(definitions().get(0).getFilters()).isEmpty();
-        assertThat(provider.isAuthWhiteListed("/old")).isTrue();
+        assertThat(authWhitelistService.isAuthWhiteListed("/old")).isTrue();
         verify(publisher).publishEvent(any(RefreshRoutesEvent.class));
         applyCircuit("{\"instances\":{\"old\":{}}}");
         assertThat(registry.circuitBreaker("old").getCircuitBreakerConfig().getSlidingWindowSize()).isEqualTo(10);
@@ -208,14 +210,14 @@ class GatewayRoutesConfigProviderTest {
 
         assertThat(registry.find("old")).isPresent();
         assertThat(definitions()).containsExactlyElementsOf(previous);
-        assertThat(provider.isAuthWhiteListed("/old")).isTrue();
+        assertThat(authWhitelistService.isAuthWhiteListed("/old")).isTrue();
         verify(publisher, never()).publishEvent(any(RefreshRoutesEvent.class));
     }
 
     @Test
-    void keepsOperationsDomainDefaultsBeforeAnyConfig() {
-        assertThat(provider.isAuthWhiteListed("/ai-operations/api/access/login")).isTrue();
-        assertThat(provider.isAuthWhiteListed("/ai-base/api/access/login")).isFalse();
+    void keepsUserDomainDefaultsBeforeAnyConfig() {
+        assertThat(authWhitelistService.isAuthWhiteListed("/ai-base/api/access/login")).isTrue();
+        assertThat(authWhitelistService.isAuthWhiteListed("/ai-operations/api/access/login")).isFalse();
     }
 
     private Route route(String id, String pattern, List<Filter> filters) {
@@ -243,4 +245,3 @@ class GatewayRoutesConfigProviderTest {
                 .properties(circuitDefinition().getArgs()).bind();
     }
 }
-

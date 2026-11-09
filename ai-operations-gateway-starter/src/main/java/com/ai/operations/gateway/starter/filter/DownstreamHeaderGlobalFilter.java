@@ -1,6 +1,6 @@
 package com.ai.operations.gateway.starter.filter;
 
-import com.ai.operations.gateway.application.provider.GatewayDownstreamHeadersConfigProvider;
+import com.ai.operations.gateway.application.governance.DownstreamHeadersPolicy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.gateway.filter.headers.HttpHeadersFilter;
 import org.springframework.cloud.gateway.route.Route;
@@ -28,18 +28,18 @@ public class DownstreamHeaderGlobalFilter implements HttpHeadersFilter {
     private static final String FORWARDED_FOR_HEADER = "X-Forwarded-For";
     private static final String REAL_IP_HEADER = "X-Real-IP";
 
-    private final GatewayDownstreamHeadersConfigProvider configProvider;
+    private final DownstreamHeadersPolicy headersPolicy;
 
-    public DownstreamHeaderGlobalFilter(GatewayDownstreamHeadersConfigProvider configProvider) {
-        this.configProvider = configProvider;
+    public DownstreamHeaderGlobalFilter(DownstreamHeadersPolicy headersPolicy) {
+        this.headersPolicy = headersPolicy;
     }
 
     @Override
     public HttpHeaders filter(HttpHeaders input, ServerWebExchange exchange) {
         Route route = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_ROUTE_ATTR);
         String applicationName = route == null ? null : route.getUri().getHost();
-        boolean removeSessionId = configProvider.shouldRemove(applicationName, SESSION_ID_HEADER);
-        boolean removeForwardedFor = configProvider.shouldRemove(applicationName, FORWARDED_FOR_HEADER);
+        boolean removeSessionId = headersPolicy.shouldRemove(applicationName, SESSION_ID_HEADER);
+        boolean removeForwardedFor = headersPolicy.shouldRemove(applicationName, FORWARDED_FOR_HEADER);
         log.debug("[DOWNSTREAM_HEADERS] application={} | removeSessionId={} | removeForwardedFor={}",
                 applicationName, removeSessionId, removeForwardedFor);
         HttpHeaders headers = new HttpHeaders();

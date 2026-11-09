@@ -11,16 +11,41 @@
 
     <artifactId>ai-operations-gateway-infrastructure</artifactId>
     <name>ai-operations-gateway-infrastructure</name>
-    <description>基础设施层：Redis 限流脚本、Nacos 配置工具</description>
+    <description>基础设施层：Redis 会话存储、Nacos 配置适配、路由定位器</description>
 
     <dependencies>
+        <!-- application 层：实现其定义的端口与策略接口 -->
+        <dependency>
+            <groupId>com.ai.operations.gateway</groupId>
+            <artifactId>ai-operations-gateway-application</artifactId>
+        </dependency>
+
         <!-- Spring Boot（非 Web，Gateway 用 Reactor 不用 Servlet）-->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
         </dependency>
 
-        <!-- Redis Reactive（限流计数器）-->
+        <!-- Spring Cloud Gateway：路由定义、谓词与过滤器工厂、配置绑定 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
+        </dependency>
+
+        <!-- LoadBalancer：lb:// 路由按服务名从 Nacos 取实例，缺失时会退化为
+             GatewayNoLoadBalancerClientAutoConfiguration，直接抛 503 Unable to find instance -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
+
+        <!-- Circuit Breaker（熔断注册表，基于 Resilience4j）-->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-circuitbreaker-reactor-resilience4j</artifactId>
+        </dependency>
+
+        <!-- Redis Reactive（会话存储与限流计数器）-->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis-reactive</artifactId>

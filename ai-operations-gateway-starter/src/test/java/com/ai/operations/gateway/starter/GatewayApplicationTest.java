@@ -1,6 +1,7 @@
 package com.ai.operations.gateway.starter;
 
-import com.ai.operations.gateway.application.provider.GatewayRoutesConfigProvider;
+import com.ai.operations.gateway.application.governance.AuthWhitelistService;
+import com.ai.operations.gateway.infrastructure.provider.GatewayRoutesConfigProvider;
 import com.ai.operations.gateway.infrastructure.config.NacosConfig;
 import com.ai.operations.gateway.infrastructure.enums.NacosDataIdEnum;
 import com.ai.operations.gateway.starter.filter.DownstreamHeaderGlobalFilter;
@@ -74,15 +75,15 @@ class GatewayApplicationTest {
         assertThat(ReflectionTestUtils.getField(provider, "configurationService"))
                 .isSameAs(context.getBean(ConfigurationService.class));
         assertThat(ReflectionTestUtils.getField(provider, "applicationReady")).isEqualTo(true);
-        assertThat(provider.isAuthWhiteListed("/ai-operations/api/access/login")).isTrue();
-        assertThat(provider.isAuthWhiteListed("/ai-agent/api/private")).isFalse();
+        assertThat(context.getBean(AuthWhitelistService.class).isAuthWhiteListed("/ai-base/api/access/login")).isTrue();
+        assertThat(context.getBean(AuthWhitelistService.class).isAuthWhiteListed("/ai-agent/api/private")).isFalse();
         verify(nacosConfig).registerConfigHandler(eq(NacosDataIdEnum.AI_GATEWAY_ROUTES), any());
         verify(nacosConfig).registerConfigHandler(eq(NacosDataIdEnum.AI_GATEWAY_DOWNSTREAM_HEADERS), any());
     }
 
     @Test
     void sortedFrameworkHeadersKeepOnlyRemoteIpForDefaultAllowedApplication() {
-        HttpHeaders result = filterRequest("ai-operations");
+        HttpHeaders result = filterRequest("ai-base");
 
         assertThat(result.get("X-Forwarded-For")).containsExactly("192.0.2.10");
         assertThat(result.getFirst("X-Internal-Session-Id")).isEqualTo("session-1");
